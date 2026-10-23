@@ -3060,6 +3060,66 @@ fn stream_cache_key(item_type: &str, item_id: &str, base_url: &str) -> String {
     format!("{}|{}|{}", item_type, item_id, base_url)
 }
 
+/// Best-effort *audio* language filter for stream results. Subtitle tags alone
+/// are not evidence of audio language, and unlabelled releases remain visible.
+fn pm_language_allowed(stream: &Value) -> bool {
+    let name = stream.get("name").and_then(Value::as_str).unwrap_or("");
+    let desc = stream.get("description").and_then(Value::as_str).unwrap_or("");
+    let filename = stream.pointer("/behaviorHints/filename").and_then(Value::as_str).unwrap_or("");
+    let details = format!("{name} {desc} {filename}");
+    let details = details.to_lowercase();
+
+    // Protect English/Hindi and explicitly dual-audio releases first.
+    // Note: a dual-audio label without named tracks is ambiguous; retain it.
+    static ALLOWED: std::sync::OnceLock<fancy_regex::Regex> = std::sync::OnceLock::new();
+    let allowed = ALLOWED.get_or_init(|| fancy_regex::Regex::new(
+        r"(?i)\b(english|eng|hindi|hin|dual[ ._-]?audio|multi[ ._-]?audio)\b"
+    ).expect("valid allowed language pattern"));
+    if allowed.is_match(&details).unwrap_or(false) {
+        return true;
+    }
+
+    // These are subtitle indicators, not audio declarations. Unknown audio
+    // remains listed rather than being incorrectly labelled foreign language.
+    static FOREIGN: std::sync::OnceLock<fancy_regex::Regex> = std::sync::OnceLock::new();
+    let foreign = FOREIGN.get_or_init(|| fancy_regex::Regex::new(
+        r"(?i)\b(malay|melayu|indonesian|indo|tamil|telugu|korean|japanese|chinese|mandarin|cantonese|thai|arabic|french|german|spanish|russian)\b"
+    ).expect("valid foreign language pattern"));
+    let stripped = details
+        .replace("sub malay", "")
+        .replace("malay sub", "")
+        .replace("sub indo", "")
+        .replace("indo sub", "")
+        .replace("indosub", "")
+        .replace("malaysub", "");
+    !foreign.is_match(&stripped).unwrap_or(false)
+}
+
+/// Quality priority across Telegram and merged upstream streams. Stable sort
+/// preserves the original order of entries with the same detected resolution.
+fn pm_resolution_priority(stream: &Value) -> u8 {
+    let name = stream.get("name").and_then(Value::as_str).unwrap_or("");
+    let desc = stream.get("description").and_then(Value::as_str).unwrap_or("");
+    let filename = stream.pointer("/behaviorHints/filename").and_then(Value::as_str).unwrap_or("");
+    let details = format!("{name} {desc} {filename}").to_ascii_lowercase();
+    static QUALITY: std::sync::OnceLock<fancy_regex::Regex> = std::sync::OnceLock::new();
+    let quality = QUALITY.get_or_init(|| fancy_regex::Regex::new(
+        r"(?i)\b(2160p|4k|uhd|1080p|720p|540p|480p|360p)\b"
+    ).expect("valid resolution pattern"));
+    let mut best = 0;
+    for found in quality.find_iter(&details).flatten() {
+        let level = match found.as_str().to_ascii_lowercase().as_str() {
+            "2160p" | "4k" | "uhd" => 4,
+            "1080p" => 3,
+            "720p" => 2,
+            "540p" | "480p" | "360p" => 1,
+            _ => 0,
+        };
+        best = best.max(level);
+    }
+    best
+}
+
 async fn finish_streams(
     ctx: &ReqCtx,
     item_type: &str,
@@ -3069,6 +3129,10 @@ async fn finish_streams(
     filtered: bool,
     files_before_filter: usize,
 ) -> Response {
+    // Apply the same language filter and quality sorting to BOTH local Telegram
+    // streams and appended upstream provider results.
+    streams.retain(pm_language_allowed);
+    streams.sort_by_key(|stream| std::cmp::Reverse(pm_resolution_priority(stream)));
     // Captured BEFORE the placeholder is pushed: the notice must only promise
     // "the streams below still work" when there really are streams below it.
     let had_streams = !streams.is_empty();
