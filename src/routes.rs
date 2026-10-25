@@ -3171,9 +3171,13 @@ async fn finish_streams(
                     && !line.starts_with("🔮 ORACLE ·"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            obj.insert("description".into(), Value::String(
-                format!("{}\n{}", new_name, clean_description).trim().to_string()
-            ));
+            // Matrix terminal-inspired presentation; metadata below is the
+            // original provider description, never invented audio/size/title.
+            let terminal_description = format!(
+                "SYSTEM_STATUS: ONLINE\\nMATRIX_FEED: {}\\nRESOLUTION: {}\\nSOURCE_DETAILS:\\n{}\\nINITIALIZE: Wake up, Neo...",
+                character, resolution, clean_description
+            ).replace("\\n", "\n");
+            obj.insert("description".into(), Value::String(terminal_description));
             obj.insert("name".into(), Value::String(new_name));
         }
     }
