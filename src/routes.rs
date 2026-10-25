@@ -3159,6 +3159,21 @@ async fn finish_streams(
                     format!("{}\n{}", old_name, description)
                 ));
             }
+            // Some clients render description rather than name. Put the same
+            // quality branding there without changing URL or behaviorHints.
+            let current_description = obj.get("description").and_then(Value::as_str).unwrap_or("").to_string();
+            let clean_description = current_description
+                .lines()
+                .filter(|line| !line.starts_with("🕶️ NΞO ·")
+                    && !line.starts_with("⚡ TRINITY ·")
+                    && !line.starts_with("💊 MORPHΞUS ·")
+                    && !line.starts_with("🕴️ SMITH ·")
+                    && !line.starts_with("🔮 ORACLE ·"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            obj.insert("description".into(), Value::String(
+                format!("{}\n{}", new_name, clean_description).trim().to_string()
+            ));
             obj.insert("name".into(), Value::String(new_name));
         }
     }
