@@ -1883,7 +1883,7 @@ async fn handle_stream(state: &Arc<AppState>, ctx: &ReqCtx, item_type: &str, ite
                 let _ = &url;
                 serde_json::json!({
                     "name": "PencariMovie",
-                    "description": format!("{}\n💾 {} • ⚡ Telegram", file_name, format_bytes(size)),
+                    "description": format!("{}\n◈ {} • ⚡ Telegram", file_name, format_bytes(size)),
                     "url": url,
                     "behaviorHints": {
                         "filename": file_name,
@@ -3408,7 +3408,7 @@ async fn sponsor_item() -> Option<Value> {
 ///
 /// ```text
 /// line 1: <clean release filename>
-/// line 2: 💾 1.6 GB • ⚡ Telegram • BluRay • HEVC • AAC5.1
+/// line 2: ◈ 1.6 GB • ⚡ Telegram • BluRay • HEVC • AAC5.1
 /// ```
 ///
 /// `behaviorHints.filename` carries the real name, `videoSize` the byte count,
@@ -3506,7 +3506,7 @@ fn stream_item(
     }
     let mut spec_bits: Vec<String> = Vec::new();
     if size > 0 {
-        spec_bits.push(format!("💾 {}", format_bytes(size)));
+        spec_bits.push(format!("◈ {}", format_bytes(size)));
     }
     spec_bits.push("⚡ Telegram".to_string());
     for pill in meta_pills {
@@ -3518,7 +3518,7 @@ fn stream_item(
     let mut description = format!("{}\n{}", display_name, spec_bits.join(" • "));
     let flags = language_flags(&display_title, caption);
     if !flags.is_empty() {
-        description.push_str(&format!("\n💬 {}", flags.join(" / ")));
+        description.push_str(&format!("\n◎ {}", flags.join(" / ")));
     }
 
     let ext = std::path::Path::new(&file_name)
@@ -3562,7 +3562,7 @@ fn stream_item(
     })
 }
 
-/// `💬 🇲🇾 Malay / 🇬🇧 English` (backend.php:17803-17830). Compiled once.
+/// `◎ 🇲🇾 Malay / 🇬🇧 English` (backend.php:17803-17830). Compiled once.
 fn language_flags(title: &str, caption: &str) -> Vec<&'static str> {
     static PATTERNS: std::sync::OnceLock<Vec<(fancy_regex::Regex, &'static str)>> =
         std::sync::OnceLock::new();
