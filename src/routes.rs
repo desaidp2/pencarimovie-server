@@ -3178,7 +3178,24 @@ async fn finish_streams(
                 .join("\n");
             // Matrix terminal-inspired presentation; metadata below is the
             // original provider description, never invented audio/size/title.
-            let terminal_description = format!("{}\n{}", clean_description.trim(), tagline)
+            // Every provider passes through this final formatter, including
+            // upstream entries that never use the local Telegram description builder.
+            let filename = obj.pointer("/behaviorHints/filename")
+                .and_then(Value::as_str).unwrap_or("");
+            let language_line_present = clean_description.lines()
+                .any(|line| line.trim_start().starts_with("◎ "));
+            let language_description = if language_line_present {
+                clean_description
+            } else {
+                let detected = language_flags(filename, &clean_description);
+                let label = if detected.is_empty() {
+                    "◎ Audio: Not specified".to_string()
+                } else {
+                    format!("◎ {}", detected.join(" / "))
+                };
+                format!("{}\\n{}", clean_description.trim(), label).replace("\\n", "\n")
+            };
+            let terminal_description = format!("{}\n{}", language_description.trim(), tagline)
                 .trim().to_string();
             obj.insert("description".into(), Value::String(terminal_description));
             obj.insert("name".into(), Value::String(new_name));
