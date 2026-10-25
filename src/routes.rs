@@ -1341,7 +1341,12 @@ pub async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
         if let Some((type_part, id_part)) = rest.split_once('/') {
             let id = id_part.strip_suffix(".json").map(|s| s.to_string());
             if let Some(id) = id {
-                if !is_authenticated(&ctx) {
+                // Opt-in public stream discovery for the dedicated Matrix test
+                // deployment. Download URLs still carry the server's own token.
+                let public_streams = crate::storage::env("PM_PUBLIC_STREAMS")
+                    .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                    .unwrap_or(false);
+                if !public_streams && !is_authenticated(&ctx) {
                     return stremio_locked_stream(&ctx.base_url);
                 }
                 let decoded_id = crate::download::percent_decode(&id);
