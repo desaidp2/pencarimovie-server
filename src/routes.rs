@@ -3133,6 +3133,35 @@ async fn finish_streams(
     // streams and appended upstream provider results.
     streams.retain(pm_language_allowed);
     streams.sort_by_key(|stream| std::cmp::Reverse(pm_resolution_priority(stream)));
+    // Apply Matrix labels to every playable stream, including upstream results.
+    // Keep the original title in the description for traceability.
+    for stream in &mut streams {
+        if stream.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).is_none() {
+            continue;
+        }
+        let quality = pm_resolution_priority(stream);
+        let (character, symbol, resolution) = match quality {
+            4 => ("🕶️ NΞO", "✦", "2160p"),
+            3 => ("⚡ TRINITY", "◆", "1080p"),
+            2 => ("💊 MORPHΞUS", "◇", "720p"),
+            1 => ("🕴️ SMITH", "▫", "SD"),
+            _ => ("🔮 ORACLE", "?", "Unknown"),
+        };
+        if let Some(obj) = stream.as_object_mut() {
+            let old_name = obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let new_name = format!("{} · {} {}", character, symbol, resolution);
+            if !old_name.is_empty() && !old_name.contains("NΞO") && !old_name.contains("TRINITY")
+                && !old_name.contains("MORPHΞUS") && !old_name.contains("SMITH")
+                && !old_name.contains("ORACLE")
+            {
+                let description = obj.get("description").and_then(Value::as_str).unwrap_or("");
+                obj.insert("description".into(), Value::String(
+                    format!("{}\n{}", old_name, description)
+                ));
+            }
+            obj.insert("name".into(), Value::String(new_name));
+        }
+    }
     // Captured BEFORE the placeholder is pushed: the notice must only promise
     // "the streams below still work" when there really are streams below it.
     let had_streams = !streams.is_empty();
