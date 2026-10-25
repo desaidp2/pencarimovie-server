@@ -3416,10 +3416,20 @@ fn stream_item(
             visual_pills.push(tag);
         }
     }
+    // Matrix branding changes labels only; original stream URLs and metadata stay intact.
+    let (character, symbol) = match pm_resolution_priority(&serde_json::json!({
+        "name": res_badge
+    })) {
+        4 => ("🕶️ NΞO", "✦"),
+        3 => ("⚡ TRINITY", "◆"),
+        2 => ("💊 MORPHΞUS", "◇"),
+        1 => ("🕴️ SMITH", "▫"),
+        _ => ("🔮 ORACLE", "?"),
+    };
     let name = if visual_pills.is_empty() {
-        format!("PencariMovie {}", res_badge)
+        format!("{} · {} {}", character, symbol, res_badge)
     } else {
-        format!("PencariMovie {}\n{}", res_badge, visual_pills.join(" | "))
+        format!("{} · {} {}\\n{}", character, symbol, res_badge, visual_pills.join(" | "))
     };
 
     // metaPills order: platform, source, visual*, codec, audio, edition — unique
