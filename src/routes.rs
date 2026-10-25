@@ -3180,7 +3180,7 @@ async fn finish_streams(
             // original provider description, never invented audio/size/title.
             // Every provider passes through this final formatter, including
             // upstream entries that never use the local Telegram description builder.
-            let filename = obj.pointer("/behaviorHints/filename")
+            let filename = obj.get("behaviorHints").and_then(|v| v.pointer("/filename"))
                 .and_then(Value::as_str).unwrap_or("");
             let language_line_present = clean_description.lines()
                 .any(|line| line.trim_start().starts_with("◎ "));
@@ -6341,7 +6341,7 @@ async fn manifest(ctx: &ReqCtx) -> Value {
     // fallback for deployments without `public/logo.png`; this port embeds the
     // asset, so the GitHub URL is deliberately NOT ported (operator decision) —
     // every build serves its own logo and never depends on that host.
-    let logo_url = format!("{}/logo.png", base_url);
+    let logo_url = "https://raw.githubusercontent.com/desaidp2/pencarimovie-server/matrix-format-test/assets/pencari-matrix-icon.svg".to_string();
 
     let doc = serde_json::json!({
         "id": format!("org.pencarimovie.addon.{}", mode),
