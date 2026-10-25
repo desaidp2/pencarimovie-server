@@ -3140,12 +3140,12 @@ async fn finish_streams(
             continue;
         }
         let quality = pm_resolution_priority(stream);
-        let (character, symbol, resolution) = match quality {
-            4 => ("🕶️ NΞO", "✦", "4K 2160p"),
-            3 => ("⚡ TRINITY", "◆", "1080p FHD"),
-            2 => ("💊 MORPHΞUS", "◇", "720p HD"),
-            1 => ("🕴️ SMITH", "▫", "SD"),
-            _ => ("🔮 ORACLE", "?", "Unknown"),
+        let (character, symbol, resolution, tagline) = match quality {
+            4 => ("🕶️ NΞO", "✦", "4K 2160p", "WAKE UP, NEO..."),
+            3 => ("⚡ TRINITY", "◆", "1080p FHD", "FOLLOW THE WHITE RABBIT"),
+            2 => ("💊 MORPHΞUS", "◇", "720p HD", "FREE YOUR MIND"),
+            1 => ("🕴️ SMITH", "▫", "SD", "MR. ANDERSON..."),
+            _ => ("🔮 ORACLE", "?", "Unknown", "KNOW THYSELF"),
         };
         if let Some(obj) = stream.as_object_mut() {
             let old_name = obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
@@ -3173,10 +3173,8 @@ async fn finish_streams(
                 .join("\n");
             // Matrix terminal-inspired presentation; metadata below is the
             // original provider description, never invented audio/size/title.
-            let terminal_description = format!(
-                "MATRIX_FEED: {}\nRESOLUTION: {}\nSOURCE_DETAILS: {}\nINITIALIZE: Wake up, Neo...",
-                character, resolution, clean_description
-            );
+            let terminal_description = format!("{}\n{}", clean_description.trim(), tagline)
+                .trim().to_string();
             obj.insert("description".into(), Value::String(terminal_description));
             obj.insert("name".into(), Value::String(new_name));
         }
