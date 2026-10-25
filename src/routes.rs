@@ -3519,6 +3519,10 @@ fn stream_item(
     let flags = language_flags(&display_title, caption);
     if !flags.is_empty() {
         description.push_str(&format!("\n◎ {}", flags.join(" / ")));
+    } else {
+        // Do not silently omit the audio-language field when metadata is absent.
+        // A filename without an explicit language is not evidence of English.
+        description.push_str("\n◎ Audio: Not specified");
     }
 
     let ext = std::path::Path::new(&file_name)
