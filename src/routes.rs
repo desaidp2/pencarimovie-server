@@ -1341,7 +1341,12 @@ pub async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
         if let Some((type_part, id_part)) = rest.split_once('/') {
             let id = id_part.strip_suffix(".json").map(|s| s.to_string());
             if let Some(id) = id {
-                if !is_authenticated(&ctx) {
+                // Opt-in public stream discovery for the dedicated Matrix test
+                // deployment. Download URLs still carry the server's own token.
+                let public_streams = crate::storage::env("PM_PUBLIC_STREAMS")
+                    .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                    .unwrap_or(false);
+                if !public_streams && !is_authenticated(&ctx) {
                     return stremio_locked_stream(&ctx.base_url);
                 }
                 let decoded_id = crate::download::percent_decode(&id);
@@ -1878,7 +1883,7 @@ async fn handle_stream(state: &Arc<AppState>, ctx: &ReqCtx, item_type: &str, ite
                 let _ = &url;
                 serde_json::json!({
                     "name": "PencariMovie",
-                    "description": format!("{}\n💾 {} • ⚡ Telegram", file_name, format_bytes(size)),
+                    "description": format!("{}\n◈ {} • ⚡ Telegram", file_name, format_bytes(size)),
                     "url": url,
                     "behaviorHints": {
                         "filename": file_name,
@@ -3133,6 +3138,69 @@ async fn finish_streams(
     // streams and appended upstream provider results.
     streams.retain(pm_language_allowed);
     streams.sort_by_key(|stream| std::cmp::Reverse(pm_resolution_priority(stream)));
+    // Apply Matrix labels to every playable stream, including upstream results.
+    // Keep the original title in the description for traceability.
+    for stream in &mut streams {
+        if stream.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).is_none() {
+            continue;
+        }
+        let quality = pm_resolution_priority(stream);
+        let (character, symbol, resolution, tagline) = match quality {
+            4 => ("🕶️ NΞO", "✦", "4K 2160p", "WAKE UP, NEO..."),
+            3 => ("⚡ TRINITY", "◆", "1080p FHD", "FOLLOW THE WHITE RABBIT"),
+            2 => ("💊 MORPHΞUS", "◇", "720p HD", "FREE YOUR MIND"),
+            1 => ("🕴️ SMITH", "▫", "SD", "MR. ANDERSON..."),
+            _ => ("🔮 ORACLE", "?", "Unknown", "KNOW THYSELF"),
+        };
+        if let Some(obj) = stream.as_object_mut() {
+            let old_name = obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let new_name = format!("{} · {} {}", character, symbol, resolution);
+            if !old_name.is_empty() && !old_name.contains("NΞO") && !old_name.contains("TRINITY")
+                && !old_name.contains("MORPHΞUS") && !old_name.contains("SMITH")
+                && !old_name.contains("ORACLE")
+            {
+                let description = obj.get("description").and_then(Value::as_str).unwrap_or("");
+                obj.insert("description".into(), Value::String(
+                    format!("{}\n{}", old_name, description)
+                ));
+            }
+            // Some clients render description rather than name. Put the same
+            // quality branding there without changing URL or behaviorHints.
+            let current_description = obj.get("description").and_then(Value::as_str).unwrap_or("").to_string();
+            let clean_description = current_description
+                .lines()
+                .filter(|line| !line.starts_with("🕶️ NΞO ·")
+                    && !line.starts_with("⚡ TRINITY ·")
+                    && !line.starts_with("💊 MORPHΞUS ·")
+                    && !line.starts_with("🕴️ SMITH ·")
+                    && !line.starts_with("🔮 ORACLE ·"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            // Matrix terminal-inspired presentation; metadata below is the
+            // original provider description, never invented audio/size/title.
+            // Every provider passes through this final formatter, including
+            // upstream entries that never use the local Telegram description builder.
+            let filename = obj.get("behaviorHints").and_then(|v| v.pointer("/filename"))
+                .and_then(Value::as_str).unwrap_or("");
+            let language_line_present = clean_description.lines()
+                .any(|line| line.trim_start().starts_with("◎ "));
+            let language_description = if language_line_present {
+                clean_description
+            } else {
+                let detected = language_flags(filename, &clean_description);
+                let label = if detected.is_empty() {
+                    "◎ Audio: Not specified".to_string()
+                } else {
+                    format!("◎ {}", detected.join(" / "))
+                };
+                format!("{}\\n{}", clean_description.trim(), label).replace("\\n", "\n")
+            };
+            let terminal_description = format!("{}\n{}", language_description.trim(), tagline)
+                .trim().to_string();
+            obj.insert("description".into(), Value::String(terminal_description));
+            obj.insert("name".into(), Value::String(new_name));
+        }
+    }
     // Captured BEFORE the placeholder is pushed: the notice must only promise
     // "the streams below still work" when there really are streams below it.
     let had_streams = !streams.is_empty();
@@ -3357,7 +3425,7 @@ async fn sponsor_item() -> Option<Value> {
 ///
 /// ```text
 /// line 1: <clean release filename>
-/// line 2: 💾 1.6 GB • ⚡ Telegram • BluRay • HEVC • AAC5.1
+/// line 2: ◈ 1.6 GB • ⚡ Telegram • BluRay • HEVC • AAC5.1
 /// ```
 ///
 /// `behaviorHints.filename` carries the real name, `videoSize` the byte count,
@@ -3416,10 +3484,20 @@ fn stream_item(
             visual_pills.push(tag);
         }
     }
+    // Matrix branding changes labels only; original stream URLs and metadata stay intact.
+    let (character, symbol) = match pm_resolution_priority(&serde_json::json!({
+        "name": res_badge
+    })) {
+        4 => ("🕶️ NΞO", "✦"),
+        3 => ("⚡ TRINITY", "◆"),
+        2 => ("💊 MORPHΞUS", "◇"),
+        1 => ("🕴️ SMITH", "▫"),
+        _ => ("🔮 ORACLE", "?"),
+    };
     let name = if visual_pills.is_empty() {
-        format!("PencariMovie {}", res_badge)
+        format!("{} · {} {}", character, symbol, res_badge)
     } else {
-        format!("PencariMovie {}\n{}", res_badge, visual_pills.join(" | "))
+        format!("{} · {} {}\\n{}", character, symbol, res_badge, visual_pills.join(" | "))
     };
 
     // metaPills order: platform, source, visual*, codec, audio, edition — unique
@@ -3445,7 +3523,7 @@ fn stream_item(
     }
     let mut spec_bits: Vec<String> = Vec::new();
     if size > 0 {
-        spec_bits.push(format!("💾 {}", format_bytes(size)));
+        spec_bits.push(format!("◈ {}", format_bytes(size)));
     }
     spec_bits.push("⚡ Telegram".to_string());
     for pill in meta_pills {
@@ -3457,7 +3535,11 @@ fn stream_item(
     let mut description = format!("{}\n{}", display_name, spec_bits.join(" • "));
     let flags = language_flags(&display_title, caption);
     if !flags.is_empty() {
-        description.push_str(&format!("\n💬 {}", flags.join(" / ")));
+        description.push_str(&format!("\n◎ {}", flags.join(" / ")));
+    } else {
+        // Do not silently omit the audio-language field when metadata is absent.
+        // A filename without an explicit language is not evidence of English.
+        description.push_str("\n◎ Audio: Not specified");
     }
 
     let ext = std::path::Path::new(&file_name)
@@ -3501,7 +3583,7 @@ fn stream_item(
     })
 }
 
-/// `💬 🇲🇾 Malay / 🇬🇧 English` (backend.php:17803-17830). Compiled once.
+/// `◎ 🇲🇾 Malay / 🇬🇧 English` (backend.php:17803-17830). Compiled once.
 fn language_flags(title: &str, caption: &str) -> Vec<&'static str> {
     static PATTERNS: std::sync::OnceLock<Vec<(fancy_regex::Regex, &'static str)>> =
         std::sync::OnceLock::new();
@@ -6259,7 +6341,7 @@ async fn manifest(ctx: &ReqCtx) -> Value {
     // fallback for deployments without `public/logo.png`; this port embeds the
     // asset, so the GitHub URL is deliberately NOT ported (operator decision) —
     // every build serves its own logo and never depends on that host.
-    let logo_url = format!("{}/logo.png", base_url);
+    let logo_url = "https://raw.githubusercontent.com/desaidp2/pencarimovie-server/matrix-format-test/assets/pencari-matrix-icon.svg".to_string();
 
     let doc = serde_json::json!({
         "id": format!("org.pencarimovie.addon.{}", mode),
